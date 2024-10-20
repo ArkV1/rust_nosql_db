@@ -1,44 +1,49 @@
 use nosql_db::{Database, Value};
 use log::{error, info, debug};
-use std::panic;
 use chrono::Local;
+use tokio::time::Duration;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
+    debug!("Starting database operations");
 
-    let result = panic::catch_unwind(|| -> Result<(), Box<dyn std::error::Error>> {
-        debug!("Starting database operations");
+    let current_dir = std::env::current_dir().expect("Failed to get current directory");
+    let db_path = current_dir.join("database.db");
+    let db_path_str = db_path.to_str().unwrap();
 
-        let current_dir = std::env::current_dir().expect("Failed to get current directory");
-        let db_path = current_dir.join("database.json");
-        
-        info!("Database file location: {:?}", db_path);
+    let db = match Database::new(db_path_str).await {
+        Ok(db) => {
+            info!("Database created or loaded successfully");
+            db
+        }
+        Err(e) => {
+            error!("Failed to create or load database: {:?}", e);
+            return Err(e.into());
+        }
+    };
 
-        let db = Database::new(db_path.to_str().unwrap())?;
+    let now = Local::now();
+    let formatted_time = now.format("%Y-%m-%d %H:%M:%S").to_string();
 
-        info!("Database created successfully");
+    let key = "compile_time".to_string();
+    let value = Value { data: format!("Compiled at {}", formatted_time) };
 
-        // Get current date and time in a readable format
-        let now = Local::now();
-        let formatted_time = now.format("%Y-%m-%d %H:%M:%S").to_string();
+    debug!("Attempting to put a key-value pair");
+    db.put(key, value).await?;
+    info!("New compile-time entry added to database");
 
-        // Create a key-value pair with the current date and time
-        let key = format!("compile_time");
-        let value = Value { data: format!("Compiled at {}", formatted_time) };
-
-        debug!("Attempting to put a key-value pair");
-        db.put(key, value)?;
-        info!("New compile-time entry added to database");
-
-        Ok(())
+    // Perform a snapshot every 5 minutes
+    let db_clone = db.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(300));
+        loop {
+            interval.tick().await;
+            if let Err(e) = db_clone.snapshot().await {
+                error!("Failed to create snapshot: {:?}", e);
+            }
+        }
     });
 
-    match result {
-        Ok(Ok(())) => info!("Program completed successfully"),
-        Ok(Err(e)) => error!("Program encountered an error: {}", e),
-        Err(e) => error!("Program panicked: {:?}", e),
-    }
-
-    debug!("Program execution completed");
     Ok(())
 }

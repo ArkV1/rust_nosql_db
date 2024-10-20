@@ -1,72 +1,23 @@
-use std::fs::{File, OpenOptions};
-use std::io::{Write, Read, ErrorKind};
+use std::fs::File;
+use std::io::{Write, Read};
 use crate::error::DatabaseError;
-use log::{debug, error};
+use crate::core::Value;
 
-pub fn save_to_file(file_path: &str, data: &str) -> Result<(), DatabaseError> {
-    debug!("Attempting to save to file: {}", file_path);
-    let mut file = match OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(file_path)
-    {
-        Ok(f) => f,
-        Err(e) => {
-            error!("Failed to open file for writing: {}", e);
-            return Err(DatabaseError::IoError(e));
-        }
-    };
-
-    match file.write_all(data.as_bytes()) {
-        Ok(_) => {
-            debug!("Data written to file successfully");
-            match file.sync_all() {
-                Ok(_) => {
-                    debug!("File synced successfully");
-                    Ok(())
-                },
-                Err(e) => {
-                    error!("Failed to sync file: {}", e);
-                    Err(DatabaseError::IoError(e))
-                }
-            }
-        },
-        Err(e) => {
-            error!("Failed to write data to file: {}", e);
-            Err(DatabaseError::IoError(e))
-        }
-    }
+pub fn save_to_file(file_path: &str, data: &[(String, Value)]) -> Result<(), DatabaseError> {
+    let file = File::create(file_path)?;
+    let mut writer = std::io::BufWriter::new(file);
+    rmp_serde::encode::write(&mut writer, data).map_err(|e| DatabaseError::SerializationError(e.to_string()))?;
+    writer.flush()?;
+    Ok(())
 }
 
-pub fn load_from_file(file_path: &str) -> Result<String, DatabaseError> {
-    debug!("Attempting to load from file: {}", file_path);
-    match File::open(file_path) {
-        Ok(mut file) => {
-            let mut contents = String::new();
-            match file.read_to_string(&mut contents) {
-                Ok(_) => {
-                    debug!("File contents loaded successfully");
-                    Ok(contents)
-                },
-                Err(e) if e.kind() == ErrorKind::UnexpectedEof => {
-                    debug!("File is empty");
-                    Ok(String::new())
-                },
-                Err(e) => {
-                    error!("Error reading file: {:?}", e);
-                    Err(DatabaseError::IoError(e))
-                }
-            }
-        },
-        Err(e) if e.kind() == ErrorKind::NotFound => {
-            debug!("File not found, creating a new empty file");
-            File::create(file_path)?;
-            Ok(String::new())
-        },
-        Err(e) => {
-            error!("Error opening file: {:?}", e);
-            Err(DatabaseError::IoError(e))
-        }
+pub fn load_from_file(file_path: &str) -> Result<Vec<(String, Value)>, DatabaseError> {
+    let mut file = File::open(file_path)?;
+    let metadata = file.metadata()?;
+    if metadata.len() == 0 {
+        return Ok(Vec::new());
     }
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+    rmp_serde::from_slice(&buffer).map_err(|e| DatabaseError::SerializationError(e.to_string()))
 }

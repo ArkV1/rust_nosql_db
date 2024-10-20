@@ -1,26 +1,23 @@
-pub enum Operation {
-    Put,
-    Delete,
-}
+use std::collections::HashMap;
+use crate::core::Value;
 
+#[derive(Clone)]
 pub struct Transaction {
-    operations: Vec<Operation>,
+    operations: HashMap<String, Value>,
 }
 
 impl Transaction {
     pub fn new() -> Self {
-        Transaction {
-            operations: Vec::new(),
+        Self {
+            operations: HashMap::new(),
         }
     }
 
-    pub fn put(&mut self) {
-        self.operations.push(Operation::Put);
+    pub fn put(&mut self, key: String, value: Value) {
+        self.operations.insert(key, value);
     }
 
-    pub fn delete(&mut self) {
-        self.operations.push(Operation::Delete);
+    pub fn operations(&self) -> impl Iterator<Item = (&String, &Value)> {
+        self.operations.iter()
     }
-
-    // Add any other methods you need for the Transaction struct
 }
